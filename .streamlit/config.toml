@@ -1,0 +1,7 @@
+[server]
+# The watcher scans every imported module, which makes transformers try to import its
+# image/video models and log "No module named 'torchvision'" errors. We do not need auto-reload.
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false

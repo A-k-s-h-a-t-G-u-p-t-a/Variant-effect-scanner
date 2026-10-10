@@ -1,0 +1,25 @@
+# Python environments and caches
+.venv*/
+__pycache__/
+*.pyc
+
+# Editor / assistant settings
+.claude/
+
+# Full ProteinGym download (about 1 GB; some files exceed GitHub's 100 MB limit).
+# Keep only the 9 assays the project and the app actually use.
+data/proteingym/*
+!data/proteingym/DMS_ProteinGym_substitutions/
+data/proteingym/DMS_ProteinGym_substitutions/*
+!data/proteingym/DMS_ProteinGym_substitutions/SUMO1_HUMAN_Weile_2017.csv
+!data/proteingym/DMS_ProteinGym_substitutions/CALM1_HUMAN_Weile_2017.csv
+!data/proteingym/DMS_ProteinGym_substitutions/UBC9_HUMAN_Weile_2017.csv
+!data/proteingym/DMS_ProteinGym_substitutions/DYR_ECOLI_Thompson_2019.csv
+!data/proteingym/DMS_ProteinGym_substitutions/RASH_HUMAN_Bandaru_2017.csv
+!data/proteingym/DMS_ProteinGym_substitutions/GFP_AEQVI_Sarkisyan_2016.csv
+!data/proteingym/DMS_ProteinGym_substitutions/TPMT_HUMAN_Matreyek_2018.csv
+!data/proteingym/DMS_ProteinGym_substitutions/BLAT_ECOLX_Stiffler_2015.csv
+!data/proteingym/DMS_ProteinGym_substitutions/CBX4_HUMAN_Tsuboyama_2023_2K28.csv
+
+# Scans of sequences pasted into the app (personal; presets in results/logprobs/ are kept)
+results/logprobs/custom_*.npy
