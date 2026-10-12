@@ -3,7 +3,6 @@
 Run with:  .\\.venv\\Scripts\\python.exe -m streamlit run app.py
 """
 import hashlib
-import json
 import re
 
 import numpy as np
@@ -12,7 +11,9 @@ import plotly.graph_objects as go
 import streamlit as st
 from scipy.stats import spearmanr
 
-from src.evaluate import DATA, PG_DIR, RESULTS, cached_logprobs, predict_additive
+import graph_page
+from src.evaluate import PG_DIR, RESULTS, cached_logprobs, predict_additive
+from src.presets import BENCHMARK_NAMES, GROUPS, list_proteins
 from src.score import AAS, entropy_from_logprobs, logratio_from_logprobs
 
 st.set_page_config(page_title="Variant Effect Scanner", layout="wide")
@@ -27,42 +28,11 @@ WINDOW = 60
 SECONDS_PER_RESIDUE = 1.5
 MAX_ENTROPY = float(np.log(20))
 
-BENCHMARK_NAMES = {
-    "SUMO1_HUMAN_Weile_2017": "SUMO1, human",
-    "CALM1_HUMAN_Weile_2017": "Calmodulin 1, human",
-    "UBC9_HUMAN_Weile_2017": "UBC9, human",
-    "DYR_ECOLI_Thompson_2019": "Dihydrofolate reductase, E. coli",
-    "RASH_HUMAN_Bandaru_2017": "HRas, human",
-    "GFP_AEQVI_Sarkisyan_2016": "Green fluorescent protein, jellyfish",
-    "TPMT_HUMAN_Matreyek_2018": "Thiopurine methyltransferase, human",
-    "BLAT_ECOLX_Stiffler_2015": "Beta-lactamase, E. coli",
-    "CBX4_HUMAN_Tsuboyama_2023_2K28": "CBX4 domain, human",
-}
-
-
 # ---------------------------------------------------------------- data loading
-
-def read_fasta(path) -> str:
-    return "".join(l.strip() for l in path.read_text().splitlines() if not l.startswith(">"))
-
 
 @st.cache_data
 def load_presets() -> list[dict]:
-    presets = [{"label": "Haemoglobin beta (P68871): sickle cell example", "key": "P68871",
-                "sequence": read_fasta(DATA / "P68871.fasta"), "group": "Case study"}]
-
-    ref = pd.read_csv(DATA / "DMS_substitutions.csv").set_index("DMS_id")
-    for dms_id, name in BENCHMARK_NAMES.items():
-        presets.append({"label": f"Benchmark: {name} ({dms_id})", "key": dms_id,
-                        "sequence": ref.loc[dms_id, "target_seq"], "group": "Benchmark",
-                        "dms_id": dms_id})
-
-    auc = pd.read_csv(RESULTS / "entropy_sites_per_protein.csv").set_index("accession")
-    for p in json.loads((DATA / "annotated_proteins.json").read_text()):
-        presets.append({"label": f"Enzyme: {p['name']} ({p['accession']})", "key": p["accession"],
-                        "sequence": p["sequence"], "group": "Enzyme", "sites": p["sites"],
-                        "site_auc": float(auc.loc[p["accession"], "auc_entropy"])})
-    return [p for p in presets if (RESULTS / "logprobs" / f"{p['key']}.npy").exists()]
+    return list_proteins()
 
 
 @st.cache_resource(show_spinner="Loading the ESM Cambrian 300M model (first time only)...")
@@ -117,19 +87,38 @@ def describe_percentile(p: float) -> str:
 
 # ---------------------------------------------------------------- sidebar: choose a protein
 
+def open_protein(node: dict):
+    """Jump from the similarity graph to that protein's single-protein view (runs before widgets)."""
+    st.session_state["mode"] = "Single protein"
+    st.session_state["source"] = "Preset protein"
+    st.session_state["collection"] = node["group"]
+    st.session_state["protein_label"] = next(p["label"] for p in load_presets() if p["key"] == node["key"])
+
+
 st.sidebar.title("Variant Effect Scanner")
 st.sidebar.caption("Zero-shot mutation effect prediction with the ESM Cambrian 300M protein language model.")
 
-source = st.sidebar.radio("Protein source", ["Preset protein", "Paste a sequence"])
+MODES = {"Single protein": "Mutation scanner: one protein",
+         "Protein similarity graph": "Protein similarity graph: all 35 proteins, with 3D structures"}
+st.session_state.setdefault("mode", "Single protein")
+mode = st.segmented_control("Choose a view", list(MODES), format_func=MODES.get, key="mode",
+                            required=True, width="stretch")
+if mode == "Protein similarity graph":
+    st.sidebar.divider()
+    st.sidebar.warning("Research tool only. Scores are model predictions, not a clinical diagnosis.")
+    graph_page.render(open_protein)
+    st.stop()
+
+source = st.sidebar.radio("Protein source", ["Preset protein", "Paste a sequence"], key="source")
 protein = None
 
 if source == "Preset protein":
     presets = load_presets()
-    groups = {"Case study": "Case study (haemoglobin)", "Benchmark": "ProteinGym benchmark proteins",
-              "Enzyme": "Enzymes with experimental functional sites"}
-    group = st.sidebar.selectbox("Collection", list(groups), format_func=groups.get)
-    in_group = [p for p in presets if p["group"] == group]
-    protein = st.sidebar.selectbox("Protein", in_group, format_func=lambda p: p["label"])
+    group = st.sidebar.selectbox("Collection", list(GROUPS), format_func=GROUPS.get, key="collection")
+    in_group = {p["label"]: p for p in presets if p["group"] == group}
+    if st.session_state.get("protein_label") not in in_group:
+        st.session_state["protein_label"] = next(iter(in_group))
+    protein = in_group[st.sidebar.selectbox("Protein", list(in_group), key="protein_label")]
     st.sidebar.caption(f"{len(presets)} preset proteins, all pre-scanned: they load instantly.")
 else:
     name = st.sidebar.text_input("Name (optional)", value="My protein")

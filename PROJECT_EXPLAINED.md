@@ -120,7 +120,16 @@ Mutating an active-site or binding-site residue usually destroys the protein's f
 - **UniProt** (specifically its reviewed section, **Swiss-Prot**): the main protein database. Each entry has a sequence plus hand-curated annotations such as active sites and binding sites, and each annotation carries an **evidence code** saying where it came from.
   - `ECO:0000269` = supported by experiments described in a published paper.
   - `ECO:0007744` = supported by an experimentally determined three-dimensional structure.
-  - `ECO:0000250` and `ECO:0000255` = inferred by similarity to another protein or by prediction. **We deliberately did not count these as true sites** (explained in section 5.5).
+  - `ECO:0000250` and `ECO:0000255` = inferred by similarity to another protein or by prediction. **We deliberately did not count these as true sites** (explained in section 5.6).
+- **Pfam** and **InterPro**: databases that group proteins into **families** and **domains** (reusable structural and functional units, for example "trypsin-like serine protease"). Two proteins sharing a Pfam or InterPro entry are evolutionary relatives. We use these as the reference answer for "are these two proteins related?" in section 5.8.
+- **AlphaFold Protein Structure Database**: predicted three-dimensional structures for almost every UniProt protein, made by the AlphaFold program. Each residue carries a confidence score called **pLDDT** (0 to 100): above 90 is very reliable, below 50 usually means a floppy or disordered region, and should not be read as real structure.
+
+### 1.11 Homology: how we know two proteins are related
+
+- Proteins descended from a common ancestor are **homologous**. Close relatives still share obvious sequence; they can be found by **sequence alignment**, which lines two sequences up and counts matching residues.
+- Over very long times sequences drift until alignment can no longer tell relatives from strangers (below roughly 20 to 25% identity, the "twilight zone"), even though the **three-dimensional fold** is often kept. Such pairs are **remote homologues**.
+- A **superfamily** groups proteins with the same fold and probable common ancestry even when their sequences no longer align. Example in our data: HRas (a signalling switch) and sulfotransferase 1E1 (a detoxification enzyme) share the "P-loop nucleoside triphosphate hydrolase" fold but have no detectable sequence similarity.
+- Detecting remote homologues is a classic hard problem, and a common claim for protein language models is that they can do it. Section 5.8 tests that claim on our proteins.
 
 ---
 
@@ -154,6 +163,14 @@ Compares two lists by their **order** rather than their raw values. A value of 1
 ### 2.6 Area under the receiver operating characteristic curve
 
 Usually shortened to **AUC** in papers and in our output files. It answers: "if I pick one true functional site and one non-site at random, how often does my score rank the true site higher?" A value of 0.5 is random guessing; 1.0 is perfect.
+
+### 2.7 Embeddings, cosine similarity and layouts
+
+- Inside the model, every residue is represented by a list of 960 numbers (a **hidden state**). Averaging these over all residues of a protein gives one 960-number summary of the whole protein: its **embedding**. We exclude the start and end tokens from the average, otherwise short proteins would be skewed more than long ones.
+- **Cosine similarity** compares two such lists by the angle between them: 1 means pointing the same way, 0 unrelated, −1 opposite.
+- **k-nearest-neighbour edges:** each protein is linked to the k proteins most similar to it (we use k = 3). This uses rankings rather than a fixed similarity cut-off, which matters because embeddings of different proteins are all fairly similar to each other.
+- **Multidimensional scaling** places points on a flat page so that their distances approximate a table of distances between them. With only 35 points it is more trustworthy than t-SNE, a popular alternative that needs far more points.
+- **Shuffle z-score:** to judge whether an alignment score is meaningful, we compare it with the scores of the same sequence shuffled 50 times (same amino acids, random order). The z-score is how many standard deviations the real score sits above the shuffled ones. Above about 8, the relationship is beyond doubt.
 
 ---
 
@@ -346,6 +363,42 @@ Output files: `results/entropy_sites_per_protein.csv`, `results/entropy_sites_re
 
 **Testing:** every one of the 35 proteins was loaded through Streamlit's built-in test runner with no errors, and the lookup checks (valid mutation, wrong wild type, wrong numbering, malformed input) were exercised.
 
+### 5.8 Protein similarity graph with three-dimensional structures
+
+**Why:** to explore all 35 proteins at once, and to test a common claim about protein language models: that they recognise relationships between proteins that sequence alignment misses.
+
+**How it was built** (`scripts/build_graph.py`, about 3 minutes the first time):
+1. **Identifiers and annotations:** each protein's UniProt accession, name, organism and Pfam and InterPro entries were downloaded from UniProt (`data/protein_metadata.csv`). Two retired ("demerged") UniProt entries that still carried old names were filtered out.
+2. **Embeddings:** one 960-number embedding per protein, averaged over residues only (`src/embed.py`, `results/embeddings.npz`).
+3. **Substitution grammar fingerprint** (the second view): from each saved scan, for every wild-type → mutant pair (20 × 20), the average log-ratio over all positions holding that wild type. This describes *how a protein tolerates change* rather than *what it is*, and does not depend on length. Each feature is standardised across proteins before comparing.
+4. **Structures:** for each accession, the AlphaFold database's own programming interface is asked for the current file address (file versions change, so addresses are never typed by hand), and the structure is downloaded once (`data/structures/`). All 35 proteins have a structure.
+5. **Thumbnails:** a small picture of each structure's backbone, coloured from start (blue) to end (red) (`results/thumbnails/`).
+6. **Graph:** each protein linked to its 3 most similar proteins, in each view; positions by multidimensional scaling (`results/graph.json`).
+7. **Sequence comparison:** all 595 pairs aligned, with percent identity and the shuffle z-score (`results/alignment.npz`, `results/protein_pairs.csv`).
+
+**In the application:** a new **"Protein similarity graph"** view in the sidebar. A switch chooses the *sequence embedding* or the *substitution grammar* view; dots are coloured by collection; solid edges join pairs that alignment also finds, dotted edges pairs only the model links. Hovering a dot shows name, organism and length. **Clicking a dot** opens a rotatable three-dimensional AlphaFold structure coloured by AlphaFold's confidence bands, its ProteinGym or functional-site result, its five nearest neighbours, and a button that jumps to that protein's mutation scan. Below the graph, a chart and tables present the analysis.
+
+**Three corrections we made to the original plan (worth presenting, they show care):**
+1. **Percent identity was misleading.** The plan's measure (global alignment divided by the shorter length) made the 50-residue CBX4 domain look 38 to 46% "identical" to six unrelated proteins. We switched to local alignment and, more importantly, to the **shuffle z-score**, which cleanly separated true relatives (z = 47 and 62) from unrelated pairs (z below 3).
+2. **Layout:** on raw cosine distance, a few unusual proteins (green fluorescent protein, the short CBX4 domain) pushed everything else into a crowded centre. Positions now use **neighbour ranks**, the same quantity the edges use.
+3. **Hover pictures:** the plotting library cannot show images on hover, so pictures and the live structure appear on click (the plan's recommended "Route 1").
+
+**Results:**
+
+| Measure | Value |
+|---|---|
+| Pairs where alignment finds a relationship (z ≥ 8) | **2 of 595**: cathepsin L / cathepsin B, granzyme B / prostate-specific antigen |
+| Rank of these pairs, embedding view | 4th and 213th of 595 |
+| Rank of these pairs, substitution grammar view | 13th and 28th of 595 |
+| Pairs sharing a superfamily with no alignment signal | 1: HRas / sulfotransferase 1E1 (ranked 475th and 564th: neither view links them) |
+| Agreement between the two views (Spearman) | 0.34 |
+
+**Interpretation (honest):**
+- Our 35 proteins were chosen for other reasons, so almost none are related. This set **cannot support a remote-homology claim**, and the one genuine remote pair was missed by both views. We report this as a negative result.
+- The pairs the embedding view links most strongly despite no alignment signal share no family or superfamily. At this level, averaged embeddings mostly say "both are compact enzymes".
+- The **substitution grammar** view ranked *both* true relative pairs in the top 5%, while the embedding view ranked one of them only 213th. Proteins from the same family appear to share how they tolerate mutations, not only what they look like. With only two pairs, this is an observation, not a proven finding.
+- A proper test would use a protein set designed for it, for example pairs from the same structural superfamily with under 20% sequence identity.
+
 ---
 
 ## 6. Results summary
@@ -357,6 +410,7 @@ Output files: `results/entropy_sites_per_protein.csv`, `results/entropy_sites_re
 | Gate 3: heatmap | Expected structure visible (conserved columns, Proline row) |
 | Gate 4: ProteinGym | Mean Spearman 0.455 against published 0.454 for the same model |
 | Phase 3: functional sites | Area under the curve 0.844, holding at 0.843 after controlling for amino acid type |
+| Similarity graph | Working demonstration with 35 AlphaFold structures; no evidence of remote-homology detection in this set; substitution grammar recovered both related pairs (ranks 13 and 28 of 595) |
 
 ---
 
@@ -370,6 +424,8 @@ Output files: `results/entropy_sites_per_protein.csv`, `results/entropy_sites_re
 6. **Memorisation of famous proteins.** Well-studied human proteins such as haemoglobin have very many relatives in the training data, inflating the model's confidence.
 7. **Small numbers of sites.** Nine of the 25 proteins have only one or two experimental sites, so their individual perfect scores are noisy. The pooled value of 0.844 is the number to quote.
 8. **Weak cases exist.** Cathepsin L scored only 0.558 and Angiogenin 0.703.
+9. **The similarity graph has almost no relatives to find.** With 2 related pairs and 1 remote pair among 595, the graph is an exploration tool; its comparison of the two views rests on very few examples.
+10. **Structures are predictions.** AlphaFold structures are computed, not measured, and cover the full UniProt protein even where our scan covers only the experimental region (for example the 50-residue CBX4 domain).
 
 **Future work:** train sparse autoencoders on the model's internal vectors to turn its implicit knowledge into named biological features, turning a score into a mechanism; evaluate on ClinVar disease variants; calibrate scores against clinical labels so the application could report a meaningful risk category.
 
@@ -383,16 +439,22 @@ major project/
 │   ├── model.py              # loads the model and tokenizer
 │   ├── score.py              # masking, scoring, batched scan, entropy (TOKEN_OFFSET lives here)
 │   ├── plot.py               # heatmap drawing
-│   └── evaluate.py           # ProteinGym evaluation and saved-scan caching
+│   ├── evaluate.py           # ProteinGym evaluation and saved-scan caching
+│   ├── presets.py            # the 35 pre-scanned proteins (shared by the app and the graph build)
+│   ├── embed.py              # protein embeddings
+│   ├── structures.py         # AlphaFold download and backbone thumbnails
+│   └── graph.py              # fingerprints, graph edges, layout, alignment z-score
 ├── scripts/
 │   ├── verify.py             # Gate 1
 │   ├── scan.py               # Gates 2 and 3 (haemoglobin beta by default)
 │   ├── proteingym.py         # Gate 4
 │   ├── entropy_sites.py      # Phase 3 finding
-│   └── entropy_control.py    # Phase 3 amino-acid control
-├── data/                     # downloaded sequences, ProteinGym files, UniProt annotations
-├── results/                  # saved scans (logprobs/), tables, figures
+│   ├── entropy_control.py    # Phase 3 amino-acid control
+│   └── build_graph.py        # similarity graph data and analysis
+├── data/                     # sequences, ProteinGym files, UniProt annotations, structures/
+├── results/                  # saved scans (logprobs/), tables, figures, thumbnails/, graph.json
 ├── app.py                    # interactive web application (Streamlit)
+├── graph_page.py             # the application's similarity graph view
 ├── requirements.txt
 └── PROJECT_EXPLAINED.md      # this document
 ```
@@ -404,6 +466,7 @@ major project/
 .\.venv\Scripts\python.exe scripts\proteingym.py        # about 50 minutes the first time, seconds afterwards
 .\.venv\Scripts\python.exe scripts\entropy_sites.py     # about 3 hours the first time, seconds afterwards
 .\.venv\Scripts\python.exe scripts\entropy_control.py   # seconds
+.\.venv\Scripts\python.exe scripts\build_graph.py       # about 3 minutes the first time (downloads 35 structures), seconds afterwards
 .\.venv\Scripts\python.exe -m streamlit run app.py      # opens the web application at http://localhost:8501
 ```
 Every scan is saved in `results/logprobs/`. Scripts reuse saved scans automatically, so only the first run is slow. Delete a saved file to force a fresh scan.
@@ -427,6 +490,7 @@ Each member **owns** one part of the pipeline: they must understand their code c
 **Remaining work:**
 - Own the back end of the web application (`app.py`, section 5.7): understand how it caches the model and scans (`st.cache_resource`, `st.cache_data`), how live scanning of a pasted sequence works, and how the within-protein percentile is computed. Be ready to demonstrate a live scan of a short sequence.
 - Measure and record scan speed (seconds per residue) for the report.
+- Own the similarity graph's data pipeline (section 5.8, steps 1 to 4): embeddings (`src/embed.py`), substitution grammar fingerprints, and the AlphaFold download (`src/structures.py`). Be able to explain why the start and end tokens are excluded from the embedding average.
 
 **Report section:** "Approach" and "System".
 
@@ -443,6 +507,7 @@ Each member **owns** one part of the pipeline: they must understand their code c
 **Remaining work:**
 - Own the front end of the web application (`app.py`, section 5.7): the five tabs, the charts and their colour choices. Lead the live demonstration in the presentation (suggested path: haemoglobin heatmap, look up `H93Y`, then `E6V` to show the numbering warning, then an enzyme's position importance tab).
 - Produce final, polished figures for the slides (consistent fonts, titles, colour scale).
+- Own the similarity graph view (`graph_page.py`): the graph, the click-to-open three-dimensional viewer, AlphaFold confidence colouring, and why the layout uses neighbour ranks. Add it to the live demonstration (click cathepsin L, rotate it, point out its low-confidence tail, then switch views).
 
 **Report section:** "Case study: haemoglobin beta" and all figures.
 
@@ -460,6 +525,7 @@ Each member **owns** one part of the pipeline: they must understand their code c
 **Remaining work:**
 - Optional extension: ClinVar evaluation. Download `variant_summary.txt.gz` from the National Center for Biotechnology Information, filter to one well-covered gene (for example *TP53* or *BRCA1*), keep only clear Pathogenic and Benign labels, score them and compute the area under the curve (expected range 0.70 to 0.85). If time is short, instead write a short analysis of why performance varies so much across the nine proteins (measurement type, protein length, organism).
 - Prepare the comparison bar chart (ours against the published baselines) for the slides.
+- Own the similarity graph's sequence comparison (section 5.8, step 7): local alignment, the shuffle z-score, and the story of why the plan's percent identity was replaced (the CBX4 example).
 
 **Report section:** "Validation".
 
@@ -477,6 +543,7 @@ Each member **owns** one part of the pipeline: they must understand their code c
 **Remaining work:**
 - Assemble the final report from all four sections, following the structure: Problem, Approach, System, Validation, Finding, Limitations, Future work. State clearly in the abstract that we do not claim state-of-the-art accuracy.
 - Assemble the slide deck from everyone's figures and keep a single consistent story.
+- Write up the similarity graph result (section 5.8, interpretation): homology and remote homology (section 1.11), why our set cannot support a remote-homology claim, the HRas / sulfotransferase negative result, and the substitution grammar observation, presented as an observation, not a finding.
 
 **Report section:** "Finding", "Limitations", "Future work", plus the abstract and introduction.
 
@@ -514,3 +581,11 @@ Each member **owns** one part of the pipeline: they must understand their code c
 | Variant of uncertain significance | A human genetic variant whose clinical effect is unknown |
 | Wild type | The normal, unmutated sequence |
 | Zero-shot | Using a model with no task-specific training |
+| AlphaFold | Program (and public database) that predicts a protein's three-dimensional structure from its sequence |
+| Cosine similarity | Similarity of two lists of numbers by the angle between them; 1 is identical direction |
+| Embedding | One list of numbers (960 for our model) summarising a whole protein |
+| Homologue / remote homologue | Proteins sharing an ancestor / relatives whose sequences no longer visibly align |
+| pLDDT | AlphaFold's per-residue confidence, 0 to 100; below 50 usually means a floppy, unreliable region |
+| Shuffle z-score | How far a real alignment score sits above scores for shuffled sequences; 8 or more means related |
+| Substitution grammar | Our fingerprint of how a protein tolerates each kind of amino acid swap |
+| Superfamily | Proteins with the same fold and probable common ancestry, even without sequence similarity |
