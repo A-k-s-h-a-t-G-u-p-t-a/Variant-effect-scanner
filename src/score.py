@@ -13,7 +13,8 @@ def _aa_ids(tok) -> list[int]:
 @torch.no_grad()
 def masked_logprobs(tok, model, sequence: str, position: int) -> dict:
     """position is 1-based. Returns {amino_acid: log_prob} for all 20."""
-    ids = tok(sequence, return_tensors="pt")["input_ids"]
+    dev = next(model.parameters()).device
+    ids = tok(sequence, return_tensors="pt")["input_ids"].to(dev)
     idx = position - 1 + TOKEN_OFFSET
 
     wt = sequence[position - 1]
@@ -42,8 +43,9 @@ def scan_logprobs(tok, model, sequence: str, batch_size: int = 8, progress=None)
     `progress`, if given, is called with the fraction done (0..1) after each batch.
     """
     L = len(sequence)
-    base = tok(sequence, return_tensors="pt")["input_ids"][0]
-    aa_ids = torch.tensor(_aa_ids(tok))
+    dev = next(model.parameters()).device
+    base = tok(sequence, return_tensors="pt")["input_ids"][0].to(dev)
+    aa_ids = torch.tensor(_aa_ids(tok), device=dev)
 
     toks = tok.convert_ids_to_tokens(base)
     for p in range(1, L + 1):
@@ -53,12 +55,13 @@ def scan_logprobs(tok, model, sequence: str, batch_size: int = 8, progress=None)
     positions = list(range(1, L + 1))
     for start in tqdm(range(0, L, batch_size), desc="scan"):
         batch_pos = positions[start:start + batch_size]
-        idxs = torch.tensor([p - 1 + TOKEN_OFFSET for p in batch_pos])
+        idxs = torch.tensor([p - 1 + TOKEN_OFFSET for p in batch_pos], device=dev)
         ids = base.repeat(len(batch_pos), 1)
-        ids[torch.arange(len(batch_pos)), idxs] = tok.mask_token_id
-        logits = model(input_ids=ids).logits[torch.arange(len(batch_pos)), idxs]
+        rows = torch.arange(len(batch_pos), device=dev)
+        ids[rows, idxs] = tok.mask_token_id
+        logits = model(input_ids=ids).logits[rows, idxs]
         logp = torch.log_softmax(logits.float(), dim=-1)
-        out[start:start + len(batch_pos)] = logp[:, aa_ids].numpy()
+        out[start:start + len(batch_pos)] = logp[:, aa_ids].cpu().numpy()
         if progress:
             progress((start + len(batch_pos)) / L)
     return out

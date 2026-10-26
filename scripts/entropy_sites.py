@@ -33,8 +33,10 @@ MAX_SPAN = 5
 QUERY = "reviewed:true AND organism_id:9606 AND ft_act_site_exp:* AND length:[100 TO 350]"
 
 
-def fetch_proteins() -> list[dict]:
-    cache = DATA / "annotated_proteins.json"
+def fetch_proteins(n_proteins: int | None = N_PROTEINS,
+                   cache_name: str = "annotated_proteins.json") -> list[dict]:
+    """n_proteins=None keeps every qualifying protein (same seed-0 shuffle, so the first 25 are unchanged)."""
+    cache = DATA / cache_name
     if cache.exists():
         return json.loads(cache.read_text())
     url = "https://rest.uniprot.org/uniprotkb/search?" + urllib.parse.urlencode(
@@ -63,7 +65,7 @@ def fetch_proteins() -> list[dict]:
             proteins.append({"accession": e["primaryAccession"], "name": e["uniProtkbId"],
                              "sequence": seq, "sites": sorted(pos_exp),
                              "excluded": sorted(pos_other - pos_exp)})
-        if len(proteins) == N_PROTEINS:
+        if n_proteins is not None and len(proteins) == n_proteins:
             break
     cache.write_text(json.dumps(proteins, indent=1))
     return proteins
