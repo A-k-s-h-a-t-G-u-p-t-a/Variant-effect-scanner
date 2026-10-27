@@ -23,3 +23,6 @@ data/proteingym/DMS_ProteinGym_substitutions/*
 
 # Scans of sequences pasted into the app (personal; presets in results/logprobs/ are kept)
 results/logprobs/custom_*.npy
+
+# Local third-party binaries and scratch
+tools/
