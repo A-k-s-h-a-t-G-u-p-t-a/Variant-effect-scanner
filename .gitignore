@@ -26,3 +26,6 @@ results/logprobs/custom_*.npy
 
 # Local third-party binaries and scratch
 tools/
+
+# Raw alignments (large, re-fetchable with scripts/fetch_msa.py)
+data/msa/*.a3m
