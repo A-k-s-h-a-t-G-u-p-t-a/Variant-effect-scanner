@@ -3,7 +3,7 @@
 Sends the public UniProt sequences to https://api.colabfold.com. Saves data/msa/<acc>.a3m and
 records depth in data/msa/depth.csv. Resumable: existing alignments are skipped.
 
-Usage: python scripts/fetch_msa.py [--limit N]
+Usage: python scripts/fetch_msa.py [--limit N] [--workers 3]
 """
 import argparse
 import io
@@ -11,6 +11,7 @@ import json
 import sys
 import tarfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -50,19 +51,30 @@ def fetch_a3m(seq: str, mode: str = "env") -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--workers", type=int, default=3)
     args = ap.parse_args()
     MSA_DIR.mkdir(exist_ok=True)
     proteins = json.loads((DATA / "annotated_proteins_all.json").read_text())
     todo = [p for p in proteins if not (MSA_DIR / f"{p['accession']}.a3m").exists()]
     print(f"{len(proteins)} proteins, {len(proteins) - len(todo)} aligned, {len(todo)} to fetch")
-    for p in todo[:args.limit]:
-        t0 = time.time()
-        a3m = fetch_a3m(p["sequence"])
-        seqs = read_a3m(a3m)
-        assert seqs[0] == p["sequence"], f"query mismatch for {p['accession']}"
-        (MSA_DIR / f"{p['accession']}.a3m").write_text(a3m)
-        print(f"{p['name']}: {len(seqs)} sequences ({time.time() - t0:.0f}s)", flush=True)
-        time.sleep(2)
+
+    def one(p):
+        for attempt in range(3):
+            try:
+                t0 = time.time()
+                a3m = fetch_a3m(p["sequence"])
+                seqs = read_a3m(a3m)
+                assert seqs[0] == p["sequence"], f"query mismatch for {p['accession']}"
+                (MSA_DIR / f"{p['accession']}.a3m").write_text(a3m)
+                print(f"{p['name']}: {len(seqs)} sequences ({time.time() - t0:.0f}s)", flush=True)
+                return
+            except (requests.RequestException, RuntimeError) as e:
+                print(f"{p['name']}: attempt {attempt + 1} failed ({e})", flush=True)
+                time.sleep(30)
+        print(f"{p['name']}: GAVE UP (rerun the script to retry)", flush=True)
+
+    with ThreadPoolExecutor(args.workers) as pool:
+        list(pool.map(one, todo[:args.limit]))
     rows = []
     for p in proteins:
         f = MSA_DIR / f"{p['accession']}.a3m"
