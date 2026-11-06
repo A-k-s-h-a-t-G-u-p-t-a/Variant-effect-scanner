@@ -12,9 +12,11 @@ RESULTS = ROOT / "results"
 PG_DIR = DATA / "proteingym" / "DMS_ProteinGym_substitutions"
 
 
-def cached_logprobs(tok, model, key: str, sequence: str, progress=None) -> np.ndarray:
-    """Scan once per sequence, reuse forever. Pass tok=model=None to require a cache hit."""
-    path = RESULTS / "logprobs" / f"{key}.npy"
+def cached_logprobs(tok, model, key: str, sequence: str, progress=None,
+                    subdir: str = "logprobs") -> np.ndarray:
+    """Scan once per sequence, reuse forever. Pass tok=model=None to require a cache hit.
+    `subdir` separates other models (default = ESMC-300M, the original cache)."""
+    path = RESULTS / subdir / f"{key}.npy"
     if path.exists():
         lp = np.load(path)
         assert lp.shape == (len(sequence), 20), f"stale cache for {key}"

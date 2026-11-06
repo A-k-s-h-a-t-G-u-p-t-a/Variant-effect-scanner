@@ -1,6 +1,7 @@
 """Task 0: one tidy per-residue table from cached scans (no model runs).
 
-Columns: protein, pos, aa, label, label_mcsa, entropy, p_wt, mean_logratio, min_logratio, cluster
+Columns: protein, pos, aa, label, label_mcsa, entropy, p_wt, mean_logratio, min_logratio,
+entropy_esm2_650m, entropy_esmc_600m (other PLMs, NaN until scanned), cluster
 Rows follow the labelling rules of entropy_sites.py: excluded residues (similarity/prediction-only
 annotations) are dropped; label = experimentally supported active/binding site residue.
 `p_wt` is the masked probability of the true residue, renormalised over the 20 standard amino acids
@@ -23,6 +24,7 @@ from src.evaluate import DATA, RESULTS, cached_logprobs
 from src.score import AAS, entropy_from_logprobs, logratio_from_logprobs
 
 OUT = RESULTS / "site_table.csv"
+OTHER_MODELS = ["esm2_650m", "esmc_600m"]  # entropy_<tag> columns, filled when scans/logprobs_<tag>/ exist
 
 
 def protein_rows(p: dict, mcsa: dict, clusters: dict) -> pd.DataFrame:
@@ -39,13 +41,19 @@ def protein_rows(p: dict, mcsa: dict, clusters: dict) -> pd.DataFrame:
     keep = np.array([i for i in range(1, len(seq) + 1) if i not in set(p["excluded"])])
     sites = set(p["sites"])
     m = set(mcsa.get(p["accession"], []))
+    extra = {}
+    for tag in OTHER_MODELS:
+        f = RESULTS / f"logprobs_{tag}" / f"{p['accession']}.npy"
+        extra[f"entropy_{tag}"] = (entropy_from_logprobs(cached_logprobs(None, None, p["accession"], seq,
+                                                                       subdir=f"logprobs_{tag}"))[keep - 1]
+                                   if f.exists() else np.nan)
     return pd.DataFrame({
         "protein": p["accession"], "pos": keep, "aa": [seq[i - 1] for i in keep],
         "label": [i in sites for i in keep],
         "label_mcsa": [i in m if m else np.nan for i in keep],
         "entropy": entropy_from_logprobs(lp)[keep - 1],
         "p_wt": p_wt[keep - 1], "mean_logratio": mean_lr[keep - 1],
-        "min_logratio": min_lr[keep - 1], "cluster": clusters.get(p["accession"], np.nan),
+        "min_logratio": min_lr[keep - 1], **extra, "cluster": clusters.get(p["accession"], np.nan),
     })
 
 
