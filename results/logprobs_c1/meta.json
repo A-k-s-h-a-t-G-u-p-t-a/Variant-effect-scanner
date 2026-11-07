@@ -1,0 +1,8 @@
+{
+ "model": "biohub/ESMC-300M-hf",
+ "device": "cpu",
+ "torch": "2.14.1+cpu",
+ "transformers": "5.19.0",
+ "python": "3.12.10",
+ "protein_list": "c1_proteins.json"
+}
