@@ -1,0 +1,8 @@
+{
+ "model": "facebook/esm2_t33_650M_UR50D",
+ "device": "cuda:0",
+ "torch": "2.14.1+cu130",
+ "transformers": "5.19.0",
+ "python": "3.13.16",
+ "protein_list": "annotated_proteins_all.json"
+}
