@@ -3,7 +3,7 @@
 Sends the public UniProt sequences to https://api.colabfold.com. Saves data/msa/<acc>.a3m and
 records depth in data/msa/depth.csv. Resumable: existing alignments are skipped.
 
-Usage: python scripts/fetch_msa.py [--limit N] [--workers 3]
+Usage: python scripts/fetch_msa.py [--limit N] [--workers 3] [--list annotated_proteins_all.json] [--msa-dir msa]
 """
 import argparse
 import io
@@ -52,9 +52,12 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--workers", type=int, default=3)
+    ap.add_argument("--list", default="annotated_proteins_all.json", help="JSON in data/ with accession, name, sequence")
+    ap.add_argument("--msa-dir", default="msa", help="folder under data/")
     args = ap.parse_args()
+    MSA_DIR = DATA / args.msa_dir
     MSA_DIR.mkdir(exist_ok=True)
-    proteins = json.loads((DATA / "annotated_proteins_all.json").read_text())
+    proteins = json.loads((DATA / args.list).read_text())
     todo = [p for p in proteins if not (MSA_DIR / f"{p['accession']}.a3m").exists()]
     print(f"{len(proteins)} proteins, {len(proteins) - len(todo)} aligned, {len(todo)} to fetch")
 

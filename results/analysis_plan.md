@@ -20,3 +20,12 @@ The A1-A3 contrasts, the depth strata (B1) and the label-type split (C2) form on
 - Features are never tuned on C1 or on the labels of the held-out folds.
 - Results that disagree with the headline are reported with equal prominence.
 - No clinical claims; scores are research hints.
+
+## C3 (annotation-free labels; added 2026-11-08 before any C3 analysis was run)
+- Data: the 9 ProteinGym assays already used in Gate 4 (ProteinGym v1.3 singles only), ESMC-300M scans already cached, alignments fetched from ColabFold.
+- Position label: a position is "sensitive" if >= 50% of its measured substitutions are binarised as deleterious (`DMS_score_bin == 0`); positions with fewer than 5 measured substitutions are dropped. No threshold tuning.
+- Features: ESMC-300M entropy and the frozen best conservation variant from Phase A (plus the default `cons` for reference).
+- Evaluation: per-assay AUC and AP; leave-one-assay-out logistic regression for [cons], [entropy], [cons, entropy]; paired difference (cons+entropy minus cons) with a bootstrap over assays (only 9 proteins, so intervals will be wide and the result is a consistency check, not a test).
+
+## C2 (label types; added before analysis)
+- Split the 126-protein UniProt label into active-site residues and binding-site residues (UniProt feature type, same evidence rules). Same frozen features, same grouped CV, paired bootstrap of cons+entropy minus cons within each label type.
