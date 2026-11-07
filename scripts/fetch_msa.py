@@ -70,7 +70,7 @@ def main():
                 return
             except (requests.RequestException, RuntimeError) as e:
                 print(f"{p['name']}: attempt {attempt + 1} failed ({e})", flush=True)
-                time.sleep(30)
+                time.sleep(60)  # 429s need a long pause
         print(f"{p['name']}: GAVE UP (rerun the script to retry)", flush=True)
 
     with ThreadPoolExecutor(args.workers) as pool:

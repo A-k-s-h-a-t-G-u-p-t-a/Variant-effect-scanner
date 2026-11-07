@@ -1,7 +1,8 @@
 """Task 0: one tidy per-residue table from cached scans (no model runs).
 
 Columns: protein, pos, aa, label, label_mcsa, entropy, p_wt, mean_logratio, min_logratio,
-entropy_esm2_650m, entropy_esmc_600m (other PLMs, NaN until scanned), cluster
+entropy_esm2_650m, entropy_esmc_600m (other PLMs, NaN until scanned),
+cons, jsd, depth (MSA, scripts/compute_conservation.py), plddt, contacts (AlphaFold, scripts/structure_features.py), cluster
 Rows follow the labelling rules of entropy_sites.py: excluded residues (similarity/prediction-only
 annotations) are dropped; label = experimentally supported active/binding site residue.
 `p_wt` is the masked probability of the true residue, renormalised over the 20 standard amino acids
@@ -63,6 +64,12 @@ def main():
     mcsa = json.loads((DATA / "mcsa_labels.json").read_text())["labels"]
     clusters = pd.read_csv(DATA / "clusters.csv").set_index("protein").cluster.to_dict()
     df = pd.concat([protein_rows(p, mcsa, clusters) for p in proteins], ignore_index=True)
+    for name in ("conservation", "structure_features"):  # optional per-residue baselines, left-merged
+        f = RESULTS / f"{name}.csv"
+        if f.exists():
+            df = df.merge(pd.read_csv(f), on=["protein", "pos"], how="left")
+    cols = [c for c in df.columns if c != "cluster"] + ["cluster"]
+    df = df[cols]
     df["cluster"] = df.cluster.astype("Int64")
     df.to_csv(OUT, index=False)
     print(f"{len(df)} rows, {df.protein.nunique()} proteins, {int(df.label.sum())} site residues")
