@@ -44,10 +44,11 @@ def main():
     ap.add_argument("--tag", required=True)
     ap.add_argument("--device", default="auto", choices=["cpu", "cuda", "auto"])
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--list", default="annotated_proteins_all.json", help="protein list JSON in data/")
     args = ap.parse_args()
 
     subdir = f"logprobs_{args.tag}"
-    proteins = json.loads((DATA / "annotated_proteins_all.json").read_text())
+    proteins = json.loads((DATA / args.list).read_text())
     todo = [p for p in proteins if not (RESULTS / subdir / f"{p['accession']}.npy").exists()]
     print(f"{args.model}: {len(proteins)} proteins, {len(proteins) - len(todo)} cached, {len(todo)} to scan")
 
@@ -57,7 +58,7 @@ def main():
     (RESULTS / subdir / "meta.json").write_text(json.dumps({
         "model": args.model, "device": str(next(model.parameters()).device),
         "torch": torch.__version__, "transformers": transformers.__version__,
-        "python": platform.python_version(), "protein_list": "annotated_proteins_all.json"}, indent=1))
+        "python": platform.python_version(), "protein_list": args.list}, indent=1))
 
     for i, p in enumerate(todo[:args.limit], 1):
         print(f"[{i}/{len(todo[:args.limit])}] {p['name']} ({len(p['sequence'])} aa)", flush=True)
