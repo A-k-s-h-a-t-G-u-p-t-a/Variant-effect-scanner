@@ -1,3 +1,4 @@
+import os
 import torch
 from transformers import AutoTokenizer, AutoModelForMaskedLM
 
@@ -10,5 +11,5 @@ def load_model(name: str = MODEL_NAME, device: str = "cpu"):
         device = "cuda" if torch.cuda.is_available() else "cpu"
     tok = AutoTokenizer.from_pretrained(name)
     model = AutoModelForMaskedLM.from_pretrained(name, dtype=torch.float32).eval().to(device)
-    torch.set_num_threads(4)
+    torch.set_num_threads(int(os.environ.get("TORCH_THREADS", 4)))
     return tok, model
